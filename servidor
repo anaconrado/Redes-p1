@@ -1,8 +1,13 @@
 #!/usr/bin/env python3
+<<<<<<< HEAD
+=======
+# Verificar os casos onde \r\n são enviados separados
+>>>>>>> 907c2a9 (Código Completo)
 import asyncio
 from tcp import Servidor
 import re
 
+<<<<<<< HEAD
 
 def validar_nome(nome):
     return re.match(br'^[a-zA-Z][a-zA-Z0-9_-]*$', nome) is not None
@@ -27,3 +32,214 @@ def conexao_aceita(conexao):
 servidor = Servidor(6667)
 servidor.registrar_monitor_de_conexoes_aceitas(conexao_aceita)
 asyncio.get_event_loop().run_forever()
+=======
+#FLAGS:
+IS_CHANNEL = b'#'
+TERMINADOR = b'\r\n'
+
+dicionario = {}
+canais = {}
+
+def validar_nome(nome):
+	return re.match(br'^[a-zA-Z][a-zA-Z0-9_-]*$', nome) is not None
+
+def sair(conexao):
+	conexao.fechar()
+	mensagem_quit(conexao)
+	dicionario.pop(conexao)
+
+def dados_recebidos(conexao, dados):
+	if dados == b'':
+		return sair(conexao)
+	print(dados)
+	#Etapa - 2
+	#tratar mensagens "quebradas"
+
+	dados = conexao.msg_residual + dados
+	while b'\r\n' in dados:
+		primeira_parte_da_mensagem, dados = dados.split(b'\r\n', 1)
+
+		# conexao.msg = conexao.msg_residual + primeira_parte_da_mensagem
+		
+		#Etapa - 1
+		#tratar pings
+		if primeira_parte_da_mensagem.startswith(b'PING'):
+			print("primeira parte da mensagem: ")
+			print(primeira_parte_da_mensagem)
+			print("dados: ")
+			print(dados)
+			print("dados do split")
+			print(primeira_parte_da_mensagem.split(b' ', 1))
+			print(primeira_parte_da_mensagem.split(b' ', 1)[1])
+			conexao.enviar(b':server PONG server :' + primeira_parte_da_mensagem.split(b' ', 1)[1] + TERMINADOR)
+
+		#tratar definição de NICK
+		if primeira_parte_da_mensagem.startswith(b'NICK'):
+			apelido = primeira_parte_da_mensagem.split(b' ', 1)[1]
+			#Etapa 3
+			if validar_nome(apelido):
+				if check_apelido_em_dicionario(apelido):
+					conexao.enviar(b':server 433 ' + conexao.apelido_atual + b' ' + apelido + b' :Nickname is already in use' + TERMINADOR)
+				elif conexao.apelido_atual == b'*':
+					set_apelido_dicionario(conexao, apelido)
+					conexao.enviar(b':server 001 ' + apelido + b' :Welcome' + TERMINADOR)
+					conexao.enviar(b':server 422 ' + apelido + b' :MOTD File is missing' + TERMINADOR)
+				else:
+					apelido_antigo = conexao.apelido_atual
+					set_apelido_dicionario(conexao, apelido)
+					conexao.enviar(b':' + apelido_antigo + b' NICK ' + apelido + TERMINADOR)
+			else:
+					conexao.enviar(b':server 432 ' + conexao.apelido_atual + b' ' + apelido + b' :Erroneous nickname' + TERMINADOR)
+
+		#Etapa 5: PRIVMSG
+		if primeira_parte_da_mensagem.startswith(b'PRIVMSG'):
+			print("resultado do split: ")
+			print(primeira_parte_da_mensagem.split(b' ', 2))
+			destinatario, conteudo = primeira_parte_da_mensagem.split(b' ', 1)[1].split(b' ', 1)
+			print("Destinatário: ")
+			print(destinatario)
+			print("Conteúdo: ")
+			print(conteudo)
+			
+			conteudo = conteudo[1:] # Para remover o : do início do contéudo
+			#Verificando se eh um canal
+			if destinatario[0] == IS_CHANNEL:
+				enviar_mensagem_canal(conexao, destinatario[1:], conteudo)  
+			#Se não é canal, então é um outro usuário
+			elif check_apelido_em_dicionario(destinatario):
+				conexao_destinatario = get_conexao_dicionario(destinatario)
+				if not conexao_destinatario == -1:
+					conexao_destinatario.enviar(b':' + conexao.apelido_atual + b' PRIVMSG ' + destinatario + b' :' + conteudo + TERMINADOR)
+
+		# Se for para participar de um canal
+		if primeira_parte_da_mensagem.startswith(b'JOIN'):  
+			nome_do_canal = primeira_parte_da_mensagem.split(b' ', 1)[1]
+			if nome_do_canal[0] == IS_CHANNEL:
+				if check_canal_em_canais(nome_do_canal[1:]):
+					if not check_conexao_em_canal(conexao, nome_do_canal):
+						entrar_canal(conexao, nome_do_canal[1:])
+				else:
+					conexao.enviar(b':server 403 ' + nome_do_canal + b' :No such channel' + TERMINADOR)
+				  # canal não existe
+			else:
+				conexao.enviar(b':server 403 ' + nome_do_canal + b' :No such channel' + TERMINADOR)
+			# nome do canal não é válido
+
+		if primeira_parte_da_mensagem.startswith(b'PART'):
+			nome_do_canal = primeira_parte_da_mensagem.split(b' ', 1)[1]
+			if nome_do_canal[0] == IS_CHANNEL:
+				if check_canal_em_canais(nome_do_canal[1:]):
+					if check_conexao_em_canal(conexao, nome_do_canal):
+						sair_canal(conexao, nome_do_canal)
+         
+	conexao.msg_residual = dados
+ 
+# -- Funções de conexões simples --
+ 
+def conexao_aceita(conexao):
+	conexao.apelido_atual = b'*'
+	# conexao.msg = b''
+	conexao.msg_residual = b''
+	print(conexao, 'nova conexão')
+	conexao.registrar_recebedor(dados_recebidos)
+
+def get_conexao_dicionario(apelido):
+	global dicionario
+	if(check_apelido_em_dicionario(apelido)):
+		for i, j in (dicionario.items()):
+			if j == apelido:
+				return i
+	return -1
+
+def set_apelido_dicionario(conexao, apelido):  
+	dicionario[conexao] = apelido
+	conexao.apelido_atual = apelido
+
+def check_apelido_em_dicionario(apelido):
+	for i, j in dicionario.items():
+		if apelido.lower() == j.lower():
+			return True
+	return False  
+
+# -- Funções de canais --
+
+
+#Envie :server 353 apelido = canal :membro1 membro2 membro3 para o usuário que entrou no canal. A lista de membros deve incluir o apelido do usuário que acabou de entrar e deve estar ordenada em ordem alfabética. Se a lista de membros for muito grande, quebre em várias mensagens desse tipo, cada uma com no máximo 512 caracteres (incluindo a terminação '\r\n').
+def criar_canal(nome_canal):
+	canais[nome_canal] = []
+
+def entrar_canal(conexao, nome_canal):
+	conexoes = canais[nome_canal]
+	conexoes.append(conexao)
+	apelido_conexoes_canal = []
+	for c in conexoes:
+		apelido_conexoes_canal.append(c.apelido_atual)
+  
+	apelido_conexoes_canal = sorted(apelido_conexoes_canal)
+	string_apelidos = b''
+	for apelido in apelido_conexoes_canal:
+		string_apelidos += apelido + b' '
+  
+	string_apelidos = string_apelidos[0:-1] #Pois teríamos um caractere vazio no final
+	string_mensagem = b':server 353 ' + conexao.apelido_atual + b' = ' + nome_canal + b' :' + string_apelidos
+
+	#:server 353 apelido = canal :membro1 membro2 membro3... membro511
+	#:server 353 apelido = canal :membro512 membro513 membro514...
+
+ 
+	#:server 353 apelido = canal :membro1 membro2 membro3... membro511
+	# membro512, membro513, membro514....
+	while not string_mensagem == b'':
+		if len(string_mensagem >= 512):
+			conexao.enviar(string_mensagem[0:512])
+			string_mensagem = string_mensagem[512:]
+		else:
+			conexao.enviar(string_mensagem + TERMINADOR)
+			string_mensagem = b''
+
+def sair_canal(conexao, nome_canal):
+	canal = canais[nome_canal]
+	canal.remove(conexao)
+	mensagem = b':' + conexao.apelido_atual + b' PART ' + nome_canal
+	enviar_mensagem_canal(nome_canal, mensagem)
+	conexao.enviar(mensagem)
+
+def check_canal_em_canais(nome_canal):
+	for i, j in canais.items():
+		if i.lower() == nome_canal.lower():
+			return True
+	return False
+
+def check_conexao_em_canal(conexao, nome_canal):
+	if nome_canal in canais:
+		conexoes = canais[nome_canal]
+		if conexao in conexoes:
+	  		return True
+	return False  
+
+def enviar_mensagem_canal(canal_destinatario, conteudo):
+	for nome_do_canal, canal in canais.items():
+		if nome_do_canal.lower() == canal_destinatario.lower():
+			for cada_conexao in canal:
+				cada_conexao.enviar(b'PRIVMSG ' + canal_destinatario + b' :' + conteudo + TERMINADOR)
+       
+def mensagem_quit(conexao):
+	conexoes_pendentes = []
+	for i, j in dicionario.items():
+		if not i == conexao:
+	  		conexoes_pendentes.append(i)
+
+	for nome_canal, canal in canais.items():
+		if conexao in canal:
+			canal.remove(conexao)
+				  
+			for outra_conexao in canal:
+				if outra_conexao in conexoes_pendentes:
+					outra_conexao.enviar(b':'+ conexao.apelido_atual + b' QUIT :Connection closed' + TERMINADOR)
+					conexoes_pendentes.remove(outra_conexao)
+     
+
+servidor = Servidor(6667)
+servidor.registrar_monitor_de_conexoes_aceitas(conexao_aceita)
+asyncio.get_event_loop().run_forever()
+>>>>>>> 907c2a9 (Código Completo)

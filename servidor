@@ -74,11 +74,12 @@ def dados_recebidos(conexao, dados):
 			
 			conteudo = conteudo[1:] # Para remover o : do início do contéudo
 			#Verificando se eh um canal
-			if destinatario[0] == IS_CHANNEL:
+			if destinatario.startswith(b'#'):
 				print("É um canal")
 				print("Destinatário: ")
 				print(destinatario)
-				enviar_mensagem_canal(conexao, destinatario[1:], conteudo)  
+				if check_conexao_em_canal(conexao, destinatario[1:]):
+					enviar_mensagem_canal(conexao, destinatario[1:], conteudo)  
 			#Se não é canal, então é um outro usuário
 			elif check_apelido_em_dicionario(destinatario):
 				print("Dicionario: ")
@@ -114,11 +115,16 @@ def dados_recebidos(conexao, dados):
 			# nome do canal não é válido
 
 		if primeira_parte_da_mensagem.startswith(b'PART'):
-			nome_do_canal = primeira_parte_da_mensagem.split(b' ', 1)[1]
-			if nome_do_canal[0] == IS_CHANNEL:
+			nome_do_canal = primeira_parte_da_mensagem.split(b' ')[1]
+			print("é part")
+			print("nome do canal:")
+			print(nome_do_canal)
+			
+			if nome_do_canal.startswith(b'#'):
 				if check_canal_em_canais(nome_do_canal[1:]):
-					if check_conexao_em_canal(conexao, nome_do_canal):
-						sair_canal(conexao, nome_do_canal)
+					if check_conexao_em_canal(conexao, nome_do_canal[1:]):
+						print("Conexao está em canal - part")
+						sair_canal(conexao, nome_do_canal[1:])
          
 	conexao.msg_residual = dados
  
@@ -187,23 +193,25 @@ def entrar_canal(conexao, nome_canal):
 
 def sair_canal(conexao, nome_canal):
 	canal = canais[nome_canal]
-	canal.remove(conexao)
-	mensagem = b':' + conexao.apelido_atual + b' PART ' + nome_canal
-	enviar_mensagem_canal(nome_canal, mensagem)
-	conexao.enviar(mensagem)
+	mensagem = b':' + conexao.apelido_atual + b' PART #' + nome_canal + TERMINADOR
+	enviar_mensagem_generica_canal(nome_canal, mensagem)
+	canal.remove(conexao) #pode ser que dê erro que precisa ser tratado
 
 def check_canal_em_canais(nome_canal):
+	print("check canal em canais")
 	for i, j in canais.items():
 		if i.lower() == nome_canal.lower():
 			return True
 	return False
 
 def check_conexao_em_canal(conexao, nome_canal):
-	if nome_canal in canais:
-		conexoes = canais[nome_canal]
-		if conexao in conexoes:
-	  		return True
-	return False  
+	print("check conexao em canal")
+	
+	for nome_c, canal in canais.items():
+		if nome_c.lower() == nome_canal.lower():
+			if conexao in canal:
+				return True
+	return False
 
 def enviar_mensagem_generica_canal(canal_destinatario, mensagem_generica):
 	for nome_canal, canal in canais.items():
@@ -213,12 +221,16 @@ def enviar_mensagem_generica_canal(canal_destinatario, mensagem_generica):
 				cada_conexao.enviar(mensagem_generica)
 				
 
-def enviar_mensagem_canal(canal_destinatario, conteudo):
+def enviar_mensagem_canal(conexao_remetente, canal_destinatario, conteudo):
+	print("Enviando mensagem para o canal...")
+	#:remetente PRIVMSG destinatário :conteúdo
 	for nome_do_canal, canal in canais.items():
 		if nome_do_canal.lower() == canal_destinatario.lower():
 			for cada_conexao in canal:
-				cada_conexao.enviar(b'PRIVMSG ' + canal_destinatario + b' :' + conteudo + TERMINADOR)
-       
+				if not cada_conexao == conexao_remetente:
+					cada_conexao.enviar(b':%s PRIVMSG %s :%s\r\n' % (conexao_remetente.apelido_atual, b'#' + canal_destinatario, conteudo))
+    
+
 def mensagem_quit(conexao):
 	conexoes_pendentes = []
 	for i, j in dicionario.items():
@@ -235,6 +247,7 @@ def mensagem_quit(conexao):
 					conexoes_pendentes.remove(outra_conexao)
      
 
+	
 servidor = Servidor(6667)
 servidor.registrar_monitor_de_conexoes_aceitas(conexao_aceita)
 asyncio.get_event_loop().run_forever()

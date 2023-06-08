@@ -75,6 +75,9 @@ def dados_recebidos(conexao, dados):
 			conteudo = conteudo[1:] # Para remover o : do início do contéudo
 			#Verificando se eh um canal
 			if destinatario[0] == IS_CHANNEL:
+				print("É um canal")
+				print("Destinatário: ")
+				print(destinatario)
 				enviar_mensagem_canal(conexao, destinatario[1:], conteudo)  
 			#Se não é canal, então é um outro usuário
 			elif check_apelido_em_dicionario(destinatario):
@@ -90,16 +93,24 @@ def dados_recebidos(conexao, dados):
 
 		# Se for para participar de um canal
 		if primeira_parte_da_mensagem.startswith(b'JOIN'):  
+			print("Comeca com join")
+			print(primeira_parte_da_mensagem)
 			nome_do_canal = primeira_parte_da_mensagem.split(b' ', 1)[1]
-			if nome_do_canal[0] == IS_CHANNEL:
+			print("nome do canal:")
+			print(nome_do_canal)
+			if validar_nome(nome_do_canal[1:]):
+				print("é canal válido")
 				if check_canal_em_canais(nome_do_canal[1:]):
+					print("Canal existe.")
 					if not check_conexao_em_canal(conexao, nome_do_canal):
 						entrar_canal(conexao, nome_do_canal[1:])
 				else:
-					conexao.enviar(b':server 403 ' + nome_do_canal + b' :No such channel' + TERMINADOR)
-				  # canal não existe
+					print("Canal não existe.")
+					criar_canal(nome_do_canal[1:])
+					entrar_canal(conexao, nome_do_canal[1:])
 			else:
 				conexao.enviar(b':server 403 ' + nome_do_canal + b' :No such channel' + TERMINADOR)
+				
 			# nome do canal não é válido
 
 		if primeira_parte_da_mensagem.startswith(b'PART'):
@@ -122,6 +133,7 @@ def conexao_aceita(conexao):
 
 def get_conexao_dicionario(apelido):
 	global dicionario
+	# podemos arrumar essa parte
 	if(check_apelido_em_dicionario(apelido)):
 		for i, j in (dicionario.items()):
 			if j.lower() == apelido.lower():
@@ -144,10 +156,15 @@ def check_apelido_em_dicionario(apelido):
 #Envie :server 353 apelido = canal :membro1 membro2 membro3 para o usuário que entrou no canal. A lista de membros deve incluir o apelido do usuário que acabou de entrar e deve estar ordenada em ordem alfabética. Se a lista de membros for muito grande, quebre em várias mensagens desse tipo, cada uma com no máximo 512 caracteres (incluindo a terminação '\r\n').
 def criar_canal(nome_canal):
 	canais[nome_canal] = []
+	print("Canal criado.")
 
 def entrar_canal(conexao, nome_canal):
+	print("Entrando no canal")								 
 	conexoes = canais[nome_canal]
 	conexoes.append(conexao)
+	#:apelido JOIN :canal
+	enviar_mensagem_generica_canal(nome_canal, b':' + conexao.apelido_atual + b' JOIN :#' + nome_canal + TERMINADOR)
+	
 	apelido_conexoes_canal = []
 	for c in conexoes:
 		apelido_conexoes_canal.append(c.apelido_atual)
@@ -158,21 +175,15 @@ def entrar_canal(conexao, nome_canal):
 		string_apelidos += apelido + b' '
   
 	string_apelidos = string_apelidos[0:-1] #Pois teríamos um caractere vazio no final
-	string_mensagem = b':server 353 ' + conexao.apelido_atual + b' = ' + nome_canal + b' :' + string_apelidos
-
-	#:server 353 apelido = canal :membro1 membro2 membro3... membro511
-	#:server 353 apelido = canal :membro512 membro513 membro514...
-
- 
-	#:server 353 apelido = canal :membro1 membro2 membro3... membro511
-	# membro512, membro513, membro514....
-	while not string_mensagem == b'':
-		if len(string_mensagem >= 512):
-			conexao.enviar(string_mensagem[0:512])
-			string_mensagem = string_mensagem[512:]
-		else:
-			conexao.enviar(string_mensagem + TERMINADOR)
-			string_mensagem = b''
+	print("string apelidos")
+	print(string_apelidos)
+	
+	conexao.enviar(b':server 353 %s = %s :%s\r\n' % (conexao.apelido_atual, b'#' + nome_canal, string_apelidos))
+			
+	# :server 366 apelido canal :End of /NAMES list.
+	conexao.enviar(b':server 366 %s %s :End of /NAMES list.\r\n' % (conexao.apelido_atual, b'#' + nome_canal))
+	
+	
 
 def sair_canal(conexao, nome_canal):
 	canal = canais[nome_canal]
@@ -193,6 +204,14 @@ def check_conexao_em_canal(conexao, nome_canal):
 		if conexao in conexoes:
 	  		return True
 	return False  
+
+def enviar_mensagem_generica_canal(canal_destinatario, mensagem_generica):
+	for nome_canal, canal in canais.items():
+		if nome_canal.lower() == canal_destinatario.lower():
+			for cada_conexao in canal:
+				print(b"Enviando mensagem generica " + mensagem_generica + b" para " + cada_conexao.apelido_atual)
+				cada_conexao.enviar(mensagem_generica)
+				
 
 def enviar_mensagem_canal(canal_destinatario, conteudo):
 	for nome_do_canal, canal in canais.items():

@@ -78,8 +78,14 @@ def dados_recebidos(conexao, dados):
 				enviar_mensagem_canal(conexao, destinatario[1:], conteudo)  
 			#Se não é canal, então é um outro usuário
 			elif check_apelido_em_dicionario(destinatario):
+				print("Dicionario: ")
+				print(dicionario)
 				conexao_destinatario = get_conexao_dicionario(destinatario)
+				print("Conexão destinatário: ")
+				print(conexao_destinatario)
+				
 				if not conexao_destinatario == -1:
+					print(b'Enviando mensagem para o destinatario: ' + destinatario)
 					conexao_destinatario.enviar(b':' + conexao.apelido_atual + b' PRIVMSG ' + destinatario + b' :' + conteudo + TERMINADOR)
 
 		# Se for para participar de um canal
@@ -118,7 +124,7 @@ def get_conexao_dicionario(apelido):
 	global dicionario
 	if(check_apelido_em_dicionario(apelido)):
 		for i, j in (dicionario.items()):
-			if j == apelido:
+			if j.lower() == apelido.lower():
 				return i
 	return -1
 
